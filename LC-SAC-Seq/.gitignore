@@ -1,0 +1,33 @@
+## General
+
+*.pyc
+*.ipynb_checkpoints
+__pycache__
+
+*.npy
+*.pkl
+
+*.swp
+*.swo
+
+.envrc
+
+## Project
+
+*.pth
+*live.ipynb
+
+/output
+/output/**
+
+/tblogs
+/tblogs/**
+
+/tblogs_z
+/tblogs_z/**
+
+/tblogs_z_tcl
+/tblogs_z_tcl/**
+
+/model
+/model/**
