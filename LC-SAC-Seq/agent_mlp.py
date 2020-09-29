@@ -134,13 +134,12 @@ class Agent(nn.Module):
     def sample_z(self):
         self.z = self.reparameterize(self.z_mu, self.z_log_std)
 
-    def get_action(self, hidden_in, obs, z_deterministic=True,pi_deterministic=False):
+    def get_action(self, obs, z_deterministic=True,pi_deterministic=False):
         ''' sample action from the policy, conditioned on the task embedding '''
-        # hidden_in = (torch.zeros([1, 1, self.hidden_dim], dtype=torch.float).to(self.device),
-        #              torch.zeros([1, 1, self.hidden_dim], dtype=torch.float).to(self.device))
-        params, hidden_out = self.latent_encoder(self.context.unsqueeze_(0), hidden_in)
-        # params = params[:, -1, :]
-        """recurrent latent encoder"""
+
+        # params = self.latent_encoder(self.context.unsqueeze_(0))
+        params = self.latent_encoder(self.context)
+
         params = params.view(-1, self.latent_encoder.output_size)
         self.z_mu = params[..., :self.latent_dim]
         self.z_log_std = params[..., self.latent_dim:]  # F.softplus
@@ -154,12 +153,10 @@ class Agent(nn.Module):
 
         obs = ptu.from_numpy(obs[None]).to(self.device)
         o_z = torch.cat([obs, self.z], dim=1)
-        return self.z.detach().cpu().numpy(), self.pi.get_action_from_cat_o_z(o_z, deterministic=pi_deterministic), hidden_out
+        return self.z.detach().cpu().numpy(), self.pi.get_action_from_cat_o_z(o_z, deterministic=pi_deterministic)
 
     def infer_latent(self, context_seq_batch):
-        hidden_in = (torch.zeros([1, context_seq_batch.shape[0], self.hidden_dim], dtype=torch.float).to(self.device),
-                     torch.zeros([1, context_seq_batch.shape[0], self.hidden_dim], dtype=torch.float).to(self.device))
-        params, _ = self.latent_encoder(context_seq_batch, hidden_in)
+        params = self.latent_encoder(context_seq_batch)
         # params 包含z_t 和z_t+1的参数
 
         params = params.view(-1, self.latent_encoder.output_size)
@@ -169,19 +166,11 @@ class Agent(nn.Module):
     def forward(self, context_seq_batch):
         self.infer_latent(context_seq_batch)
         self.sample_z()
-        self.z = torch.stack((torch.stack([self.z[2 * i] for i in range(self.latent_batch_size)]),
-                              torch.stack([self.z[2 * i + 1] for i in range(self.latent_batch_size)])))
-        # self.z = []
-        # self.z.append(torch.stack([self.z_mu[2 * i] for i in range(self.seq_len]) ) # 100  z_t
-        # self.z.append(torch.stack([self.z_mu[2 * i+1] for i in range(self.seq_len)]))  # 100 z_t+1
-        # (2,100,5) self.latent_batch_size=100
-
-        # self.z = torch.stack((torch.stack([self.z_mu[2 * i] for i in range(self.latent_batch_size)]),
-        #                       torch.stack([self.z_mu[2 * i + 1] for i in range(self.latent_batch_size)])))
-
-        self.z_mu = torch.stack(
-            [self.z_mu[2 * i] for i in range(self.latent_batch_size)])  # 100   # 只提取出 z_t 对应的均值方差，用于计算KL散度
-        self.z_log_std = torch.stack([self.z_log_std[2 * i] for i in range(self.latent_batch_size)])
+        # self.z = torch.stack((torch.stack([self.z[2 * i] for i in range(self.latent_batch_size)]),
+        #                       torch.stack([self.z[2 * i + 1] for i in range(self.latent_batch_size)])))
+        # self.z_mu = torch.stack(
+        #     [self.z_mu[2 * i] for i in range(self.latent_batch_size)])  # 100   # 只提取出 z_t 对应的均值方差，用于计算KL散度
+        # self.z_log_std = torch.stack([self.z_log_std[2 * i] for i in range(self.latent_batch_size)])
 
         return self.z, self.z_mu, self.z_log_std  # 均值
 

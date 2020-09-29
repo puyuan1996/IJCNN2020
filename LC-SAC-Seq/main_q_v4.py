@@ -3,12 +3,12 @@ import os
 import torch
 import torch.nn as nn
 
-from latent_encoder import RecurrentLatentEncoder, RecurrentLatentEncoder2head, RecurrentLatentEncoderDet
-from agent_z import Agent
+from latent_encoder import RecurrentLatentEncoder, RecurrentLatentEncoder2head, RecurrentLatentEncoderDet,RecurrentLatentEncoder2head_v4
+from agent_v4 import Agent
 
 import gym
 from spinup.algos.pytorch.sac.core import SquashedGaussianMLPActor, MLPQFunction
-from spinup.algos.pytorch.sac.sac_q_v3 import SAC
+from spinup.algos.pytorch.sac.sac_q_v4 import SAC
 import pytorch_util as ptu
 
 
@@ -33,7 +33,7 @@ def run(args):
     print('-' * 10)
 
     if recurrent:
-        latent_encoder = RecurrentLatentEncoder2head(input_dim=latent_encoder_input_dim, latent_dim=latent_dim,
+        latent_encoder = RecurrentLatentEncoder2head_v4(input_dim=latent_encoder_input_dim, latent_dim=latent_dim,
                                                      hidden_dim=latent_encoder_hidden_dim, device=args.device)
     else:
         latent_encoder = MlpEncoder(
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument('--rl_fq', type=int, default=1)  # 5
 
     parser.add_argument('-latent_uf', '--latent_encoder_update_frequency', type=int, default=5000)  # 5000
-    parser.add_argument('-rl_uf', '--rl_update_frequency', type=int, default=50)  # 1e4
+    parser.add_argument('-rl_uf', '--rl_update_frequency', type=int, default=50)  # 50
 
     parser.add_argument('-latent_bs','--latent_buffer_size', type=int, default=1000000) #50000
     parser.add_argument('-rl_bs','--rl_buffer_size', type=int, default=1000000)#5000
@@ -131,6 +131,8 @@ if __name__ == "__main__":
     parser.add_argument('--z_deterministic', type=bool, default=False)
     parser.add_argument('--pi_deterministic', type=bool, default=False)
     args = parser.parse_args()
+    # args.latent_fq = args.seq_len  # TODO
+
     print('-'*10)
     print(f'latent_dim:{args.latent_dim}')
     print(f'seq_len:{args.seq_len}')
@@ -149,13 +151,13 @@ if __name__ == "__main__":
         i = get_key(env_id_dict, args.env)[0]
 
         if i == 2:  # Hopper
-            args.epochs = 500  # 4e6
+            args.epochs = 300  # 2e6
         elif i in [0, 1, 7, 9]:  # Ant,HalfCheetah, Swimmer,LunarLanderContinuous
-            args.epochs = 500  # 4e6
+            args.epochs = 300  # 3e6
         elif i in [3, 11]:  # Humanoid,BipedalWalkerHardCore
             args.epochs = 1000  # 10e6
         else:  # Striker,Pusher,Reacher,Thrower, BipedalWalker
-            args.epochs = 500  # 4e6
+            args.epochs = 400  # 4e6
         print('-'*10)
         print(f'experiment {args.env} seed {j} begin!')
         print('-' * 10)

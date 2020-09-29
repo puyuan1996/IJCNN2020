@@ -81,7 +81,8 @@ class ReplayBuffer:
 
     def random_batch(self, batch_size):
         ''' batch of unordered transitions '''
-        indices = np.random.randint(0, self.size, batch_size)
+        # indices = np.random.randint(0, self.size, batch_size)
+        indices = np.random.randint(1, self.size-1, batch_size) # TODO
         return self.sample_data(indices)
 
     def random_sequence(self, seq_len=20):

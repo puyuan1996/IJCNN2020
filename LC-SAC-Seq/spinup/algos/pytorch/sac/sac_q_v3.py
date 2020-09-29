@@ -62,18 +62,25 @@ class SAC(object):
         self.rl_update_frequency = args.rl_update_frequency
         self.random_steps = args.random_steps
         self.update_begin_steps = args.update_begin_steps
-        self.deterministic = args.deterministic
+        self.z_deterministic = args.z_deterministic
+        self.pi_deterministic = args.pi_deterministic
         self.rl_fq = args.rl_fq
         self.latent_fq = args.latent_fq
+        self.latent_dim = args.latent_dim
+        self.tcl_lambda = args.tcl_lambda
         # self.sampler=sampler
         # self.writer = SummaryWriter('tblogs')
         # self.model_path = args.model_path + self.env_name + f'_s{self.seed}_{self.rl_update_frequency}_{self.latent_encoder_update_frequency}/'
-        self.model_path = f'model_z/{self.env_name}_s{self.seed}/{args.latent_fq}_{args.rl_fq}_{self.latent_encoder_update_frequency}_{self.rl_update_frequency}_' \
+        self.model_path = f'model_v3/{self.env_name}_s{self.seed}_l{args.seq_len}/{args.latent_fq}_{args.rl_fq}_{self.latent_encoder_update_frequency}_{self.rl_update_frequency}_' \
                           f'{args.latent_buffer_size}_{args.rl_buffer_size}/'
-
-        self.writer = SummaryWriter(f'tblogs_z/{self.env_name}_s{self.seed}/{args.latent_fq}_{args.rl_fq}_'
-                                    f'{self.latent_encoder_update_frequency}_{self.rl_update_frequency}_'
-                                    f'{args.latent_buffer_size}_{args.rl_buffer_size}')
+        self.test_rew_path = f'test_rew_v3/{self.env_name}_s{self.seed}_l{args.seq_len}/{args.latent_fq}_{args.rl_fq}_{self.latent_encoder_update_frequency}_{self.rl_update_frequency}_' \
+                             f'{args.latent_buffer_size}_{args.rl_buffer_size}/'
+        self.writer_prefix = f'{self.env_name}_s{self.seed}_l{args.seq_len}_{args.latent_fq}_{args.rl_fq}_{self.latent_encoder_update_frequency}_{self.rl_update_frequency}_' \
+                             f'{args.latent_buffer_size}_{args.rl_buffer_size}_'
+        self.writer = SummaryWriter(
+            f'tblogs_v3/{self.env_name}_s{self.seed}_l{args.seq_len}/{args.latent_fq}_{args.rl_fq}_'
+            f'{self.latent_encoder_update_frequency}_{self.rl_update_frequency}_'
+            f'{args.latent_buffer_size}_{args.rl_buffer_size}/')
         # time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
         # self.logger = EpochLogger(**logger_kwargs)
         # self.logger.save_config(locals())
@@ -101,7 +108,8 @@ class SAC(object):
         self.q_params = itertools.chain(q1_net.parameters(), q2_net.parameters())
 
         # Experience buffer
-        self.rl_replay_buffer = ReplayBufferZ(latent_dim=args.latent_dim,obs_dim=obs_dim, act_dim=act_dim, size=self.rl_buffer_size)
+        self.rl_replay_buffer = ReplayBufferZ(latent_dim=args.latent_dim, obs_dim=obs_dim, act_dim=act_dim,
+                                              size=self.rl_buffer_size)
         self.latent_replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=self.latent_buffer_size)
         # Count variables (protip: try to get a feel for how different size networks behave!)
         var_counts = tuple(core.count_vars(module) for module in [agent.latent_encoder, agent.pi, q1_net, q2_net])
@@ -122,7 +130,7 @@ class SAC(object):
     #         return a.numpy()
 
     # Set up function for computing SAC Q-losses
-    def compute_loss_q(self, data, z,z2):
+    def compute_loss_q(self, data, z, z2):
         o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
         o.squeeze_(0)
         o = o.to(self.device)
@@ -186,21 +194,22 @@ class SAC(object):
         # return loss_pi, pi_info
         return loss_pi
 
-    def update_step_rl(self, data):
+    def update_step_rl(self, data, z2):
         z = data['z'].to(self.device)
-        z2 = data['z2'].to(self.device)
-        data = {k: v for k, v in data.items() if k != 'z' and k != 'z2'}
+        data = {k: v for k, v in data.items() if k != 'z'}  # and k != 'z2'}
+
+        z2 = z2.to(self.device)
 
         # First run one gradient descent step for Q1 and Q2
         self.q_optimizer.zero_grad()
-        loss_q = self.compute_loss_q(data, z.detach(),z2.detach())
+        loss_q = self.compute_loss_q(data, z.detach(), z2.detach())
         # loss_q, q_info = self.compute_loss_q(data, z)
         loss_q.backward()
         self.q_optimizer.step()
 
         # Record things
         # self.logger.store(LossQ=loss_q.item(), **q_info)
-        self.writer.add_scalar(f'{self.model_path}_LossQ', float(loss_q.item()), self.total_train_steps)
+        self.writer.add_scalar(f'{self.writer_prefix}LossQ', float(loss_q.item()), self.total_train_steps)
 
         # Freeze Q-networks so you don't waste computational effort
         # computing gradients for them during the policy learning step.
@@ -233,7 +242,7 @@ class SAC(object):
 
         # Record things
         # self.logger.store(LossPi=loss_pi.item(), **pi_info)
-        self.writer.add_scalar(f'{self.model_path}_LossPi', float(loss_pi.item()), self.total_train_steps)
+        self.writer.add_scalar(f'{self.writer_prefix}LossPi', float(loss_pi.item()), self.total_train_steps)
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
             for p, p_targ in zip(self.q1_net.parameters(), self.q1_net_targ.parameters()):
@@ -248,7 +257,6 @@ class SAC(object):
                 p_targ.data.add_((1 - self.polyak) * p.data)
 
     def update_step_latent(self, context_batch_indices, context_seq_batch, update_latent_encoder):
-
         data = self.latent_replay_buffer.sample_data(context_batch_indices)
 
         # data = data.to(self.device)
@@ -268,13 +276,15 @@ class SAC(object):
 
         # First run one gradient descent step for Q1 and Q2
         # self.q_optimizer.zero_grad()
-        loss_q = self.compute_loss_q(data, z[0],z[1])
+        # loss_q = self.compute_loss_q(data, z[0],z[1])
+        loss_q = self.compute_loss_q(data, z[0], z[1].detach())  # TODO
         loss_latent = loss_q + self.kl_lambda * KLD
         loss_latent.backward()
         # self.q_optimizer.step()
         if self.total_latent_train_steps % 2000 == 0:
             print('KLD', KLD.item())
             print('loss_q', loss_q.item())
+        self.writer.add_scalar(f'{self.writer_prefix}KLD', float(KLD.item()), self.total_train_steps)
         # # Next run one gradient descent step for pi.
         # self.pi_optimizer.zero_grad()
         # loss_pi, pi_info = self.compute_loss_pi(data, z[0])
@@ -291,8 +301,10 @@ class SAC(object):
             p.requires_grad = True
 
     def train_step_rl(self, update_latent_encoder=True):
-        data = self.rl_replay_buffer.random_batch(self.latent_batch_size)
-        self.update_step_rl(data)  # sac rl update
+        data, indices = self.rl_replay_buffer.random_batch(self.latent_batch_size)
+        data2 = self.rl_replay_buffer.sample_data(indices + 1)
+        z2 = data2['z']
+        self.update_step_rl(data, z2)  # sac rl update
 
     def train_step_latent(self, update_latent_encoder=True):
         # self.latent_batch_size = 100
@@ -341,7 +353,7 @@ class SAC(object):
                 hidden_out = hidden_in
                 a = self.env.action_space.sample()
             else:
-                z2, a, hidden_out = self.agent.get_action(hidden_in, o, deterministic=True)
+                z, a, hidden_out = self.agent.get_action(hidden_in, o, z_deterministic=True, pi_deterministic=True)
             hidden_in = hidden_out
             a = a.squeeze()
             next_o, r, d, env_info = self.env.step(a)
@@ -367,11 +379,11 @@ class SAC(object):
         print(
             f'test total_rewards\n mean: {total_rewards.mean()},std: {total_rewards.std()},max: {total_rewards.max()},min: {total_rewards.min()}')
 
-        self.writer.add_scalar(f'{self.model_path}_test_rew', float(total_rewards.mean()), self.total_train_steps)
-        self.test_rews.append(total_rewards.mean())
+        self.writer.add_scalar(f'{self.writer_prefix}test_rew', float(total_rewards.mean()), self.total_train_steps)
+        self.test_rew.append(total_rewards.mean())
 
     def train(self):
-        self.test_rews = []
+        self.test_rew = []
         ep_ret_list = []
         # Prepare for interaction with environment
         total_steps = self.steps_per_epoch * self.epochs
@@ -395,7 +407,8 @@ class SAC(object):
                     # z = np.zeros([1, self.agent.hidden_dim])
                     # z2 = np.zeros([1, self.agent.hidden_dim])
                 else:
-                    z2, a, hidden_out = self.agent.get_action(hidden_in, o, deterministic=self.deterministic)  # TODO
+                    z, a, hidden_out = self.agent.get_action(hidden_in, o, z_deterministic=self.z_deterministic,
+                                                             pi_deterministic=False)  # self.pi_deterministic)  # TODO
                 hidden_in = hidden_out
                 a = a.squeeze()
                 # a = get_action(o)
@@ -416,12 +429,12 @@ class SAC(object):
             d = False if ep_len == self.max_ep_len else d
 
             # Store experience to replay buffer
-            self.rl_replay_buffer.add_sample(o, a, r, o2, d, z, z2)
+            self.rl_replay_buffer.add_sample(o, a, r, o2, d, z)
             self.latent_replay_buffer.add_sample(o, a, r, o2, d)
             # Super critical, easy to overlook step: make sure to update
             # most recent observation!
             o = o2
-            z = z2
+            # z2 = z
             # End of trajectory handling
             if d or (ep_len == self.max_ep_len):
                 ep_ret_list.append(ep_ret)
@@ -475,6 +488,6 @@ class SAC(object):
                     self.train_step_latent(self.update_latent_encoder)  # T
                     self.total_latent_train_steps += 1
 
-        self.test_rews_path = self.model_path + f'{self.env_name}_{self.seed}'
-        os.makedirs(self.test_rews_path, exist_ok=True)
-        np.save(self.test_rews_path, self.test_rews)
+        # self.test_rews_path = self.model_path + f'{self.env_name}_{self.seed}'
+        os.makedirs(self.test_rew_path, exist_ok=True)
+        np.save(self.test_rew_path, self.test_rew)

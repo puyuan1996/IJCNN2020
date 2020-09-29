@@ -16,7 +16,7 @@ class ReplayBufferZ:
 
     def __init__(self, latent_dim, obs_dim, act_dim, size):
         self.z_buf = np.zeros(core.combined_shape(size, latent_dim), dtype=np.float32)
-        self.z2_buf = np.zeros(core.combined_shape(size, latent_dim), dtype=np.float32)
+        # self.z2_buf = np.zeros(core.combined_shape(size, latent_dim), dtype=np.float32)
         self.obs_buf = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
         self.obs2_buf = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
         self.act_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
@@ -35,9 +35,22 @@ class ReplayBufferZ:
         self.episode_starts = []
         self.cur_episode_starts = 0
 
-    def add_sample(self, obs, act, rew, next_obs, done,z,z2):
+    # def add_sample(self, obs, act, rew, next_obs, done,z,z2):
+    #     self.z_buf[self.ptr] = z
+    #     self.z2_buf[self.ptr] = z2
+    #     self.obs_buf[self.ptr] = obs
+    #     self.obs2_buf[self.ptr] = next_obs
+    #     self.act_buf[self.ptr] = act
+    #     self.rew_buf[self.ptr] = rew
+    #     self.done_buf[self.ptr] = done
+    #     self.ptr = (self.ptr + 1) % self.max_size
+    #     self.size = min(self.size + 1, self.max_size)
+    #
+    #     if done==True:  # TODO
+    #         self.terminate_episode()
+    def add_sample(self, obs, act, rew, next_obs, done,z):
         self.z_buf[self.ptr] = z
-        self.z2_buf[self.ptr] = z2
+        # self.z2_buf[self.ptr] = z2
         self.obs_buf[self.ptr] = obs
         self.obs2_buf[self.ptr] = next_obs
         self.act_buf[self.ptr] = act
@@ -48,7 +61,6 @@ class ReplayBufferZ:
 
         if done==True:  # TODO
             self.terminate_episode()
-
     def add_path(self, path):
         """
         Add a path to the replay buffer.
@@ -79,7 +91,7 @@ class ReplayBufferZ:
         batch = dict(z=self.z_buf[idxs],
                      obs=self.obs_buf[idxs],
                      obs2=self.obs2_buf[idxs],
-                     z2=self.z2_buf[idxs],
+                     # z2=self.z2_buf[idxs],
                      act=self.act_buf[idxs],
                      rew=self.rew_buf[idxs],
                      done=self.done_buf[idxs])
@@ -87,8 +99,9 @@ class ReplayBufferZ:
 
     def random_batch(self, batch_size):
         ''' batch of unordered transitions '''
-        indices = np.random.randint(0, self.size, batch_size)
-        return self.sample_data(indices)
+        # indices = np.random.randint(0, self.size, batch_size)
+        indices = np.random.randint(1, self.size-1, batch_size) #TODO
+        return self.sample_data(indices),indices
 
     def random_sequence(self, seq_len=20):
         ''' batch of trajectories '''
